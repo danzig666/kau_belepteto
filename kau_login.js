@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.1)
 // @namespace    http://tampermonkey.net/
-// @version      2.6.1
+// @version      2.6.2
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
 // @author       abelke@gmail.com
 // @match        *://*.oeny.hu/*
@@ -141,7 +141,9 @@
       .modal {
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
         background: #f9f9f9; padding: 24px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
-        width: 640px; max-width: 95%; pointer-events: auto;
+        width: 640px; max-width: 95%;
+        max-height: 90vh; overflow: auto;          /* <-- key lines for scrolling */
+        pointer-events: auto;
       }
       h2, h3 { margin: 0 0 10px; color: #222; }
       p.note { margin: 8px 0 14px; color: #7a7a7a; font-size: 12px; }
