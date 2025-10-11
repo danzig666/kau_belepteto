@@ -1,5 +1,7 @@
 **KAÜ (Ügyfélkapu+) kétfaktoros automata beléptető – Tampermonkey userscript**
 
+**Ha nem tudod mit az a TOTP akkor itt hagyd abba az olvasást :)**
+
 Ez a Tampermonkey userscript többprofilos, félautomata–automata belépést valósít meg a magyar kormányzati bejelentkezési folyamaton, amikor a szolgáltatás a **kau.gov.hu** központi azonosítót, majd az **idp.gov.hu** oldalt használja a kétfaktoros beléptetésre. A script kezelőfelületet ad a belépési profilokhoz (felhasználónév, jelszó, TOTP), választható profillal indítja a belépést, igény szerint automatikus időzített belépést végez, és kitölti az IDP jelszó és TOTP űrlapjait.
 
 **Támogatott domainek**
