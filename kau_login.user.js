@@ -1,9 +1,8 @@
 // ==UserScript==
-// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.1)
+// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.3)
 // @namespace    http://tampermonkey.net/
-// @version      2.6.2
+// @version      2.6.3
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
-// @author       abelke@gmail.com
 // @match        *://*.oeny.hu/*
 // @match        *://kau.gov.hu/*
 // @match        *://idp.gov.hu/*
@@ -17,7 +16,6 @@
 (function () {
   'use strict';
 
-  // --- Global guard to invalidate any running autologin countdowns ---
   let autoLoginGeneration = 0;
 
   const I18N = {
@@ -73,7 +71,6 @@
 
   const Storage = {
     getCreds() {
-      // migration: ensure autoLoginEnabled exists (default true)
       const d = JSON.parse(GM_getValue(KEYS.CREDS, '{"profiles":{}, "autoLoginProfile": null, "autoLoginEnabled": true}'));
       if (typeof d.autoLoginEnabled !== 'boolean') d.autoLoginEnabled = true;
       if (!d.profiles) d.profiles = {};
@@ -109,19 +106,16 @@
     _pack64(val) { const b = new ArrayBuffer(8), dv = new DataView(b), hi = Math.floor(val/2**32), lo = Math.floor(val%2**32); dv.setUint32(0, hi); dv.setUint32(4, lo); return b; }
   };
 
-  // ---- FIX: single-event hardened handler (CLICK only) ----
+  // Hardened single-click handler
   function attachButton(el, handler) {
     const wrap = (e) => {
-      try {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        handler(e);
-      } catch (err) { console.error('[KAU] Button handler error:', err); }
+      try { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); handler(e); }
+      catch (err) { console.error('[KAU] Button handler error:', err); }
     };
     el.addEventListener('click', wrap, { capture: true });
   }
 
+  // Shadow host helpers
   function createShadowHost(id = 'kau-shadow-host') {
     let host = document.getElementById(id);
     if (host) host.remove();
@@ -133,6 +127,11 @@
     return { host, root, destroy: () => host.remove() };
   }
 
+  // Detect open modals (to avoid chooser popping above manager)
+  function isManagerOpen() { return !!document.getElementById('kau-shadow-host-manager'); }
+  function isChooserOpen() { return !!document.getElementById('kau-shadow-host-selection'); }
+
+  // Scrollable modal styling
   function modalStyles() {
     return `
       :host { all: initial; }
@@ -142,7 +141,7 @@
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
         background: #f9f9f9; padding: 24px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
         width: 640px; max-width: 95%;
-        max-height: 90vh; overflow: auto;          /* <-- key lines for scrolling */
+        max-height: 90vh; overflow: auto;   /* görgethető */
         pointer-events: auto;
       }
       h2, h3 { margin: 0 0 10px; color: #222; }
@@ -219,14 +218,11 @@
     reader.readAsText(file, 'utf-8');
   }
 
-  // Manager UI (Shadow DOM)
+  // Manager UI (scrollable)
   function buildManagerUI() {
-    // Opening the manager cancels any existing countdowns
-    autoLoginGeneration++;
-
+    autoLoginGeneration++; // cancel any countdowns
     const { root, destroy } = createShadowHost('kau-shadow-host-manager');
     const style = document.createElement('style'); style.textContent = modalStyles();
-
     const overlay = document.createElement('div'); overlay.className = 'overlay';
     const modal = document.createElement('div'); modal.className = 'modal';
 
@@ -259,25 +255,20 @@
         <button type="button" class="btn-secondary" id="kau-close-btn">${I18N.closeBtn}</button>
       </div>
     `;
-
     root.append(style, overlay, modal);
 
     const close = () => destroy();
     overlay.addEventListener('click', (e) => { if (e.target === overlay) { e.preventDefault(); e.stopPropagation(); close(); } }, { capture: true });
 
-    // Toggle auto-login ON/OFF (now single-click only)
     attachButton(root.getElementById('kau-toggle-autologin'), () => {
       const d = Storage.getCreds();
       d.autoLoginEnabled = !d.autoLoginEnabled;
       Storage.saveCreds(d);
-      // Cancel any running countdowns regardless of direction to avoid stale timers
-      autoLoginGeneration++;
-      // update UI text
+      autoLoginGeneration++; // cancel any existing countdowns
       root.getElementById('kau-autologin-status').textContent = d.autoLoginEnabled ? I18N.autoLoginStatusOn : I18N.autoLoginStatusOff;
       root.getElementById('kau-toggle-autologin').textContent = d.autoLoginEnabled ? I18N.disableAutoLoginBtn : I18N.enableAutoLoginBtn;
     });
 
-    // Export / Import
     attachButton(root.getElementById('kau-export'), () => exportCredsToFile());
     const importBtn = root.getElementById('kau-import');
     const importFile = root.getElementById('kau-import-file');
@@ -289,7 +280,6 @@
       importFile.value = '';
     }, { capture: true });
 
-    // Close / Save new profile
     attachButton(root.getElementById('kau-close-btn'), () => close());
     attachButton(root.getElementById('kau-save-btn'), () => {
       const alias = root.getElementById('kau-alias').value.trim();
@@ -335,7 +325,6 @@
     div.querySelectorAll('[data-login-now]').forEach(btn => {
       attachButton(btn, () => {
         const alias = btn.getAttribute('data-login-now');
-        // Close manager, then start flow and continue
         const hostEl = document.getElementById('kau-shadow-host-manager');
         hostEl && hostEl.remove();
         startFlow(alias);
@@ -356,7 +345,7 @@
       });
     });
 
-    // Set as auto-login profile
+    // Set auto-login profile
     div.querySelectorAll('[data-setauto]').forEach(btn => {
       attachButton(btn, () => {
         const alias = btn.getAttribute('data-setauto');
@@ -368,17 +357,16 @@
     });
   }
 
-  // Selection Modal (Shadow DOM) with cancellable countdown and auto-login toggle respected
+  // Selection Modal (scrollable)
   function showSelectionModal() {
     const creds = Storage.getCreds(); const names = Object.keys(creds.profiles);
     if (names.length === 0) return;
+    if (isManagerOpen()) return; // új védelem: ha manager nyitva, ne jelenjen meg
 
-    // New generation for this instance; any older timers auto-cancel
     const myGen = ++autoLoginGeneration;
 
     const { root, destroy } = createShadowHost('kau-shadow-host-selection');
     const style = document.createElement('style'); style.textContent = modalStyles();
-
     const overlay = document.createElement('div'); overlay.className = 'overlay';
     const modal = document.createElement('div'); modal.className = 'modal';
 
@@ -405,24 +393,12 @@
 
     overlay.addEventListener('click', (e) => { if (e.target === overlay) { e.preventDefault(); e.stopPropagation(); close(); } }, { capture: true });
 
-    // Cancel -> clear flow and CANCEL all countdowns
-    attachButton(root.getElementById('kau-cancel'), () => {
-      Storage.clearFlow();
-      autoLoginGeneration++; // invalidate this modal's countdown immediately
-      close();
-    });
+    attachButton(root.getElementById('kau-cancel'), () => { Storage.clearFlow(); autoLoginGeneration++; close(); });
+    attachButton(root.getElementById('kau-manage'), () => { autoLoginGeneration++; close(); buildManagerUI(); });
 
-    // Open manager -> CANCEL countdowns globally
-    attachButton(root.getElementById('kau-manage'), () => {
-      autoLoginGeneration++; // invalidate this modal's countdown immediately
-      close();
-      buildManagerUI();
-    });
-
-    // Select profile → proceed (guarded by generation)
     root.querySelectorAll('.cred-select-btn').forEach(btn => {
       attachButton(btn, () => {
-        if (autoLoginGeneration !== myGen) return; // canceled in the meantime
+        if (autoLoginGeneration !== myGen) return;
         const alias = btn.getAttribute('data-alias');
         startFlow(alias);
         close();
@@ -430,12 +406,11 @@
       });
     });
 
-    // Countdown only if enabled + profile set
     if (showCountdown) {
       let s = 10;
       const el = modal.querySelector('#kau-countdown');
       countdownTimer = setInterval(() => {
-        if (autoLoginGeneration !== myGen || !document.getElementById('kau-shadow-host-selection')) {
+        if (autoLoginGeneration !== myGen || !document.getElementById('kau-shadow-host-selection') || isManagerOpen()) {
           clearInterval(countdownTimer);
           return;
         }
@@ -443,7 +418,7 @@
         if (el) el.textContent = String(s);
         if (s <= 0) {
           clearInterval(countdownTimer);
-          if (autoLoginGeneration !== myGen || !document.getElementById('kau-shadow-host-selection')) return;
+          if (autoLoginGeneration !== myGen || !document.getElementById('kau-shadow-host-selection') || isManagerOpen()) return;
           startFlow(creds.autoLoginProfile);
           close();
           continueLogin();
@@ -452,7 +427,7 @@
     }
   }
 
-  // Flow management
+  // Flow
   const Steps = Object.freeze({ start: 'start', password: 'password', totp: 'totp', done: 'done' });
   function newFlow(alias) {
     const creds = Storage.getCreds(); const profile = creds.profiles[alias]; if (!profile) return null;
@@ -467,7 +442,7 @@
   function updateFlow(partial) { const f = getValidFlow(); if (!f) return; Object.assign(f, partial, { lastHost: location.hostname }); Storage.setFlow(f); }
   function completeFlow() { Storage.clearFlow(); }
 
-  // Page detection
+  // Detect pages
   function onKauDomain() { return /(^|\.)kau\.gov\.hu$/i.test(location.hostname); }
   function onKauChooserPage() {
     if (!onKauDomain()) return false;
@@ -506,7 +481,7 @@
     if (shouldReset) Storage.clearFlow();
   }
 
-  // Automation steps
+  // Automation
   async function continueLogin() {
     const flow = getValidFlow(); if (!flow) return;
 
@@ -558,13 +533,26 @@
     }
   }
 
+  // Guarded selector modal trigger
   function maybeShowSelectionModalOnce() {
     resetStaleFlowOnChooser();
     if (!onKauChooserPage()) return;
+    if (isManagerOpen()) return;          // <-- új védelem
+    if (isChooserOpen()) return;          // ne hozzunk létre másodikat
     if (getValidFlow()) return;
     showSelectionModal();
   }
 
+  function injectManagerButton() {
+    if (document.getElementById('kau-manager-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'kau-manager-btn';
+    btn.textContent = I18N.managerBtn;
+    btn.addEventListener('click', buildManagerUI);
+    document.body.appendChild(btn);
+  }
+
+  // Main
   function main() {
     if (onKauDomain()) injectManagerButton();
 
@@ -577,9 +565,12 @@
 
     if (onKauChooserPage()) {
       resetStaleFlowOnChooser();
-      const fNow = getValidFlow();
-      if (!fNow) { maybeShowSelectionModalOnce(); return; }
-      continueLogin();
+      // Ha manager nyitva, nem indítunk automatikus UI-t
+      if (!isManagerOpen()) {
+        const fNow = getValidFlow();
+        if (!fNow) { maybeShowSelectionModalOnce(); return; }
+        continueLogin();
+      }
       return;
     }
 
@@ -588,6 +579,8 @@
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', main); else main();
-  window.addEventListener('pageshow', () => setTimeout(main, 150));
-  window.addEventListener('focus', () => setTimeout(maybeShowSelectionModalOnce, 200));
+
+  // Fókuszváltáskor csak akkor próbáljuk meg a választó modált, ha nincs manager nyitva
+  window.addEventListener('pageshow', () => setTimeout(() => { if (!isManagerOpen()) maybeShowSelectionModalOnce(); }, 150));
+  window.addEventListener('focus', () => setTimeout(() => { if (!isManagerOpen()) maybeShowSelectionModalOnce(); }, 200));
 })();
