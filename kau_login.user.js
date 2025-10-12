@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.3)
+// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.4)
 // @namespace    http://tampermonkey.net/
 // @version      2.6.3
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
@@ -131,7 +131,7 @@
   function isManagerOpen() { return !!document.getElementById('kau-shadow-host-manager'); }
   function isChooserOpen() { return !!document.getElementById('kau-shadow-host-selection'); }
 
-  // Scrollable modal styling
+  // === Responsive, mobilbarát modal CSS ===
   function modalStyles() {
     return `
       :host { all: initial; }
@@ -141,16 +141,16 @@
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
         background: #f9f9f9; padding: 24px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
         width: 640px; max-width: 95%;
-        max-height: 90vh; overflow: auto;   /* görgethető */
+        max-height: 90vh; overflow: auto;  /* görgethető */
         pointer-events: auto;
       }
       h2, h3 { margin: 0 0 10px; color: #222; }
       p.note { margin: 8px 0 14px; color: #7a7a7a; font-size: 12px; }
       .form-group { margin-bottom: 12px; }
       label { display:block; margin-bottom: 6px; font-weight:600; color:#444; }
-      input { width: 96%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; }
+      input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; }
       .btn-row { display:flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 14px; align-items:center; }
-      .btn-group { display:flex; justify-content:flex-end; margin-top: 20px; gap: 10px; }
+      .btn-group { display:flex; justify-content:flex-end; margin-top: 20px; gap: 10px; flex-wrap: wrap; }
       button { padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 700; background: #e0e0e0; color: #111; }
       .btn-primary { background:#007bff; color:#fff; }
       .btn-secondary { background:#6c757d; color:#fff; }
@@ -158,15 +158,52 @@
       .btn-neutral { background:#e0e0e0; color:#111; }
       .status-pill { padding: 8px 10px; border-radius: 999px; background:#f1f1f1; font-size: 12px; }
       .cred-list { max-height: 260px; overflow-y:auto; border:1px solid #eee; padding: 8px; background:#fff; border-radius: 6px;}
-      .cred-item { display:grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items:center; padding:8px; border-bottom:1px solid #f0f0f0; }
+
+      /* Asztali: alias + 3 gomb egy sorban */
+      .cred-item {
+        display:grid; grid-template-columns: 1fr auto auto auto; gap: 8px;
+        align-items:center; padding:8px; border-bottom:1px solid #f0f0f0;
+      }
       .cred-item.auto-login { background:#e8ffe8; font-weight:600; }
       .cred-item .alias { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
       .cred-select-btn { display:block; width:100%; text-align:left; padding:14px; margin-bottom:10px; background:#fff; border:1px solid #ccc; border-radius: 8px; cursor:pointer; font-size:16px; }
       .cred-select-btn:hover { background:#f5f5f5; }
       .cred-select-btn.auto-login-profile { border-left: 5px solid #28a745; }
       .countdown-text { text-align:center; margin: 14px 0 8px; font-size: 14px; color:#666; }
       #kau-countdown { font-weight: 700; font-size: 16px; }
       input[type="file"] { display: none; }
+
+      /* === Mobil (szűk kijelző) optimalizációk === */
+      @media (max-width: 520px) {
+        .modal { width: 96vw; padding: 16px; }
+        .cred-list { max-height: 56vh; }
+        button { padding: 9px 12px; font-size: 13px; }
+        .cred-select-btn { font-size: 15px; padding: 12px; }
+
+        /* A profil sorok egy oszlopra váltanak:
+           1. sor: alias teljes szélességen
+           2-4. sor: gombok külön sorokban, 100% szélességen */
+        .cred-item {
+          display: grid;
+          grid-template-columns: 1fr;
+          grid-auto-rows: auto;
+          gap: 6px;
+          align-items: stretch;
+        }
+        .cred-item .alias {
+          white-space: normal;           /* ne vágjuk el, tördelhető legyen */
+          overflow: visible;
+        }
+        .cred-item > button {
+          width: 100%;
+          justify-self: stretch;
+        }
+
+        /* Alsó gombsor is törhető legyen */
+        .btn-group { justify-content: stretch; }
+        .btn-group > button { flex: 1 1 auto; }
+      }
     `;
   }
 
