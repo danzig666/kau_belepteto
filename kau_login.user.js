@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.4)
 // @namespace    http://tampermonkey.net/
-// @version      2.6.3
+// @version      2.6.4
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
 // @match        *://*.oeny.hu/*
 // @match        *://kau.gov.hu/*
@@ -621,3 +621,4 @@
   window.addEventListener('pageshow', () => setTimeout(() => { if (!isManagerOpen()) maybeShowSelectionModalOnce(); }, 150));
   window.addEventListener('focus', () => setTimeout(() => { if (!isManagerOpen()) maybeShowSelectionModalOnce(); }, 200));
 })();
+
