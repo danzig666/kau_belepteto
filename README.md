@@ -22,10 +22,10 @@ A script a domainek közötti átirányítás során kezeli a belépési folyama
 
 **Telepítés**
 
-1.  Telepítsd a **Tampermonkey** bővítményt a böngésződbe.
-2.  Hozz létre új userscriptet, és illeszd be a forráskódot.
-3.  Engedélyezd a scriptet.
-4.  Látogasd meg a támogatott oldalakat (pl. oeny.hu), majd indítsd a bejelentkezést.
+1.  Telepítsd a **[Tampermonkey](https://www.tampermonkey.net/)** bővítményt a böngésződbe.
+2.  [Kattints ide a telepítéshez](https://github.com/danzig666/kau_belepteto/raw/refs/heads/main/kau_login.user.js)
+4.  Ha az előző megoldás nem működik, hozz létre új userscriptet és illeszd be a forráskódot és engedélyezd a scriptet.
+5.  Látogasd meg a támogatott oldalakat (pl. oeny.hu), majd indítsd a bejelentkezést.
 
 **Használat**
 
