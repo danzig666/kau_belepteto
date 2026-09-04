@@ -25,6 +25,7 @@ A script a domainek közötti átirányítás során kezeli a belépési folyama
 1.  Telepítsd a **[Tampermonkey](https://www.tampermonkey.net/)** bővítményt a böngésződbe.
 2.  [Kattints ide a telepítéshez](https://github.com/danzig666/kau_belepteto/raw/refs/heads/main/kau_login.user.js)
 4.  Ha az előző megoldás nem működik, hozz létre új userscriptet és illeszd be a forráskódot és engedélyezd a scriptet.
+5.  **Ha korábban a v2.6.5 vagy régebbi verziót használtad:** azokban a `@name` tartalmazta a verziószámot, ezért a Tampermonkey minden kiadást külön scriptként telepített, külön adattárral. Előbb exportáld a profiljaidat, majd az irányítópulton töröld az összes régi példányt, telepítsd a v2.6.6-ot, és importáld vissza az adatokat. Ettől a verziótól a frissítés helyben történik.
 5.  Látogasd meg a támogatott oldalakat (pl. oeny.hu), majd indítsd a bejelentkezést.
 
 **Használat**

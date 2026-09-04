@@ -1,5 +1,39 @@
 # Változásnapló
 
+## v2.6.6
+
+**Javítva: több példány futott egyszerre, ezért a régi jelszóval próbált belépni.**
+
+- A `@name` mező eddig tartalmazta a verziószámot (`... (v2.6.4)`, `... (v2.6.5)`).
+  A Tampermonkey a `@name` + `@namespace` páros alapján azonosítja a scriptet, így
+  minden kiadás **külön scriptként települt, külön GM adattárral**. Több példány
+  futott egyszerre ugyanazon az oldalon: az egyik kezelőjében töröltél és
+  importáltál, de a másik példány a saját, elavult adataiból töltötte ki az
+  űrlapot. A `@name` mostantól verziószám nélküli és állandó.
+- Új `@downloadURL` és `@updateURL`, így a Tampermonkey ezentúl valóban
+  **frissíti** a scriptet új telepítés helyett.
+- `@noframes`: a script nem indul el iframe-ekben.
+- Beépített védelem duplikált példány ellen: ha egy másik példány már fut az
+  oldalon, a script leáll, és a konzolra figyelmeztetést ír.
+
+**Egyéb**
+
+- A script már nem választ magától alapértelmezett profilt, ha egynél több van.
+  A v2.6.5-ben törlés/import után az elsőre esett vissza, így a visszaszámláló
+  csendben egy **másik fiókkal** léphetett be.
+- A visszaszámláló szövege megnevezi, melyik profillal fog belépni.
+- Konzol diagnosztika: melyik verzió indult, hány profil van az adattárában,
+  melyik profillal és milyen hosszú jelszóval tölti ki az űrlapot.
+
+### Frissítés v2.6.6-ra
+
+1. Exportáld a profiljaidat a jelenleg **működő** példányból.
+2. A Tampermonkey irányítópulton **töröld az összes régi példányt**
+   (`... (v2.6.3)`, `... (v2.6.4)`, `... (v2.6.5)`).
+3. Telepítsd a v2.6.6-ot, majd importáld vissza az exportált fájlt.
+
+Innentől a frissítések helyben történnek, az adattár megmarad.
+
 ## v2.6.5
 
 **Javítva: törlés + import után nem működött a belépés.**

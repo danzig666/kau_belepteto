@@ -1,8 +1,12 @@
 // ==UserScript==
-// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.5)
+// @name         KAÜ (Ügyfélkapu+) automata beléptető
 // @namespace    http://tampermonkey.net/
-// @version      2.6.5
+// @version      2.6.6
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
+// @author       danzig666
+// @homepageURL  https://github.com/danzig666/kau_belepteto
+// @downloadURL  https://raw.githubusercontent.com/danzig666/kau_belepteto/main/kau_login.user.js
+// @updateURL    https://raw.githubusercontent.com/danzig666/kau_belepteto/main/kau_login.user.js
 // @match        *://*.oeny.hu/*
 // @match        *://kau.gov.hu/*
 // @match        *://idp.gov.hu/*
@@ -10,11 +14,29 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_addStyle
+// @noframes
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
   'use strict';
+
+  const SCRIPT_VERSION = '2.6.6';
+
+  // A v2.6.5-ig a @name tartalmazta a verziószámot, ezért a Tampermonkey minden
+  // kiadást KÜLÖN scriptként telepített, KÜLÖN GM adattárral. Ilyenkor több
+  // példány fut egyszerre ugyanazon az oldalon, és a régi példány a saját,
+  // elavult adataival írja felül az űrlapot. Csak egy példány futhat.
+  const instanceMarker = document.documentElement;
+  if (instanceMarker.dataset.kauLoginActive) {
+    console.warn(
+      `[KAU v${SCRIPT_VERSION}] Ezen az oldalon már fut egy másik példány ` +
+      `(v${instanceMarker.dataset.kauLoginActive}), ezért ez a példány leáll. ` +
+      'Nyisd meg a Tampermonkey irányítópultot, és töröld a duplikált (régi verziójú) scripteket!'
+    );
+    return;
+  }
+  instanceMarker.dataset.kauLoginActive = SCRIPT_VERSION;
 
   let autoLoginGeneration = 0;
   let activeCountdownTimer = null;
@@ -43,7 +65,7 @@
     noProfilesSaved: "Még nincsenek mentett profilok.",
     selectProfileTitle: "Válasszon profilt a belépéshez",
     loginAs: (alias, username) => `Belépés mint <strong>${alias}</strong> (${username})`,
-    countdownText: (s) => `Automatikus belépés az alapértelmezett profillal <span id="kau-countdown">${s}</span> másodperc múlva...`,
+    countdownText: (s, alias) => `Automatikus belépés a(z) <strong>${alias}</strong> profillal <span id="kau-countdown">${s}</span> másodperc múlva...`,
     selectToContinue: "Válasszon egy profilt a folytatáshoz.",
     manageCredsBtn: "Adatok kezelése",
     manualLoginBtn: "Mégse / kézi Belépés",
@@ -306,10 +328,11 @@
         if (obj.autoLoginProfile && current.profiles[obj.autoLoginProfile]) {
           current.autoLoginProfile = obj.autoLoginProfile;
         } else if (!current.autoLoginProfile || !current.profiles[current.autoLoginProfile]) {
-          // Törlés után az alapértelmezett null-ra állt; ha az import fájl nem nevez
-          // meg érvényeset, essen vissza az elsőre, különben az autologin
-          // visszaszámláló soha nem indul el.
-          current.autoLoginProfile = Object.keys(current.profiles)[0] || null;
+          // Csak akkor állítunk be magunktól alapértelmezettet, ha egyetlen profil
+          // van. Több profilnál a felhasználó válasszon, különben a visszaszámláló
+          // csendben egy másik fiókkal lépne be.
+          const ks = Object.keys(current.profiles);
+          current.autoLoginProfile = ks.length === 1 ? ks[0] : null;
         }
         Storage.saveCreds(current);
         // FONTOS: a futó belépési folyamat a régi adatokra hivatkozik, és amíg
@@ -398,7 +421,7 @@
       if (!norm) { alert(I18N.invalidTotp); return; }
       const d = Storage.getCreds();
       d.profiles[alias] = norm;
-      if (!d.autoLoginProfile || !d.profiles[d.autoLoginProfile]) d.autoLoginProfile = alias;
+      if (Object.keys(d.profiles).length === 1) d.autoLoginProfile = alias;
       Storage.saveCreds(d);
       Storage.clearFlow();
       autoLoginGeneration++;
@@ -460,7 +483,10 @@
         if (!confirm(I18N.deleteConfirm(alias))) return;
         const d = Storage.getCreds();
         delete d.profiles[alias];
-        if (d.autoLoginProfile === alias) d.autoLoginProfile = Object.keys(d.profiles)[0] || null;
+        if (d.autoLoginProfile === alias) {
+          const ks = Object.keys(d.profiles);
+          d.autoLoginProfile = ks.length === 1 ? ks[0] : null;
+        }
         Storage.saveCreds(d);
         // A törölt profilhoz tartozó (vagy bármely) futó folyamat érvénytelen.
         Storage.clearFlow();
@@ -509,7 +535,7 @@
     modal.innerHTML = `
       <h2>${I18N.selectProfileTitle}</h2>
       ${listHtml}
-      <p class="countdown-text">${showCountdown ? I18N.countdownText(10) : I18N.selectToContinue}</p>
+      <p class="countdown-text">${showCountdown ? I18N.countdownText(10, creds.autoLoginProfile) : I18N.selectToContinue}</p>
       <div class="btn-group">
         <button type="button" id="kau-manage" class="btn-secondary">${I18N.manageCredsBtn}</button>
         <button type="button" id="kau-cancel" class="btn-danger">${I18N.manualLoginBtn}</button>
@@ -575,7 +601,12 @@
     if (!p) { console.warn('[KAU] A folyamathoz tartozó profil már nem létezik:', flow.alias); completeFlow(); return null; }
     return p;
   }
-  function startFlow(alias) { const f = newFlow(alias); if (f) Storage.setFlow(f); }
+  function startFlow(alias) {
+    const f = newFlow(alias);
+    if (!f) { console.warn(`[KAU v${SCRIPT_VERSION}] Nincs ilyen profil: "${alias}"`); return; }
+    console.info(`[KAU v${SCRIPT_VERSION}] Belépési folyamat indul: profil="${alias}"`);
+    Storage.setFlow(f);
+  }
   function getValidFlow() {
     const f = Storage.getFlow(); if (!f) return null;
     if ((Date.now() - (f.startedAt || 0)) > FLOW_TTL_MS) { Storage.clearFlow(); return null; }
@@ -645,6 +676,10 @@
       if (onIdpPasswordPage() && (flow.step === Steps.password || flow.step === Steps.start)) {
         const u = await waitFor('#name', 10000);
         const p = await waitFor('#password', 10000);
+        console.info(
+          `[KAU v${SCRIPT_VERSION}] Jelszó űrlap kitöltése: profil="${flow.alias}", ` +
+          `felhasználónév="${profile.username}", jelszó hossza=${String(profile.password).length}`
+        );
         u.value = profile.username;
         p.value = profile.password;
         u.dispatchEvent(new Event('input', { bubbles: true }));
@@ -657,6 +692,7 @@
 
       if (onIdpTotpPage() && (flow.step === Steps.totp || flow.step === Steps.password)) {
         const totpField = await waitFor('#identifier', 10000);
+        console.info(`[KAU v${SCRIPT_VERSION}] TOTP űrlap kitöltése: profil="${flow.alias}"`);
         const secret = extractTotpSecret(profile.totp_uri);
         if (!secret) throw new Error('Nem sikerült kiolvasni a TOTP secretet a tárolt URI-ból.');
         totpField.value = await TOTP.totp(secret);
@@ -697,6 +733,10 @@
 
   // Main
   function main() {
+    console.info(
+      `[KAU v${SCRIPT_VERSION}] Indul: ${location.hostname}, ` +
+      `${Object.keys(Storage.getCreds().profiles).length} profil ebben az adattárban.`
+    );
     if (onKauDomain()) injectManagerButton();
 
     if (onNonAuthServicePage()) {
