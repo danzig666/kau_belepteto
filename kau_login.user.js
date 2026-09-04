@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.4)
+// @name         KAÜ (Ügyfélkapu+) automata beléptető (v2.6.5)
 // @namespace    http://tampermonkey.net/
-// @version      2.6.4
+// @version      2.6.5
 // @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, autologin
 // @match        *://*.oeny.hu/*
 // @match        *://kau.gov.hu/*
@@ -17,6 +17,7 @@
   'use strict';
 
   let autoLoginGeneration = 0;
+  let activeCountdownTimer = null;
 
   const I18N = {
     managerBtn: "KAÜ Kezelő",
@@ -50,6 +51,11 @@
     exportBtn: "Exportálás fájlba",
     importBtn: "Importálás fájlból",
     importSuccess: "Importálás kész.",
+    importReport: (ok, skipped) => skipped.length
+      ? `Importálás kész: ${ok} profil beolvasva.\n\nKihagyva (hiányos vagy hibás adat): ${skipped.join(', ')}`
+      : `Importálás kész: ${ok} profil beolvasva.`,
+    importNothing: "Nem volt egyetlen érvényes profil sem. Szükséges mezők: felhasználónév, jelszó és érvényes Base32 TOTP titok.",
+    invalidTotp: "Érvénytelen TOTP titok. Base32 kód (A-Z, 2-7) vagy otpauth:// URI szükséges.",
     importInvalid: "Érvénytelen import fájl.",
     importError: "Nem sikerült beolvasni az import fájlt.",
     securityNote: "Megjegyzés: az exportált fájl jelszavakat is tartalmaz, kezeld bizalmasan."
@@ -82,6 +88,49 @@
     clearFlow() { GM_deleteValue(KEYS.FLOW); }
   };
 
+  // --- TOTP titok normalizálás -----------------------------------------
+  // Base32 titok tisztítása: szóköz/kötőjel el, '=' padding le, nagybetűsítés.
+  function sanitizeBase32(v) {
+    const clean = String(v == null ? '' : v).replace(/[\s\-_]/g, '').replace(/=+$/, '').toUpperCase();
+    return /^[A-Z2-7]{8,}$/.test(clean) ? clean : null;
+  }
+
+  // Titok kinyerése otpauth:// URI-ból. Nem támaszkodik kizárólag a URL API-ra,
+  // mert az otpauth nem "special" séma, és a kézzel szerkesztett fájlokban
+  // gyakran más alakban áll a titok.
+  function extractTotpSecret(uri) {
+    if (!uri) return null;
+    let raw = null;
+    try { raw = new URL(uri).searchParams.get('secret'); } catch (e) { /* nem valid URL */ }
+    if (!raw) {
+      const m = /[?&]secret=([^&#]+)/i.exec(String(uri));
+      if (m) { try { raw = decodeURIComponent(m[1]); } catch (e) { raw = m[1]; } }
+    }
+    if (!raw) raw = uri; // csupasz Base32 titok is elfogadott
+    return sanitizeBase32(raw);
+  }
+
+  function buildTotpUri(username, raw) {
+    const v = String(raw || '').trim();
+    if (/^otpauth:\/\//i.test(v)) return v;
+    return `otpauth://totp/${encodeURIComponent(username)}?secret=${encodeURIComponent(v)}`;
+  }
+
+  // Import bejegyzés normalizálása: többféle mezőnevet is elfogad,
+  // és mindig kanonikus { username, password, totp_uri } alakot ad vissza.
+  function normalizeProfileEntry(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    const username = typeof entry.username === 'string' ? entry.username.trim() : '';
+    const password = typeof entry.password === 'string' ? entry.password : '';
+    if (!username || !password) return null;
+    const rawTotp = [entry.totp_uri, entry.totpUri, entry.otpauth, entry.totp, entry.secret]
+      .find(v => typeof v === 'string' && v.trim());
+    if (!rawTotp) return null;
+    const uri = buildTotpUri(username, rawTotp);
+    if (!extractTotpSecret(uri)) return null; // olvashatatlan titok -> ne mentsuk csendben
+    return { username, password, totp_uri: uri };
+  }
+
   const TOTP = {
     async totp(secretB32, step = 30, digits = 6) { return this.hotp(this._unbase32(secretB32), this._pack64(Date.now()/1000/step), digits); },
     async hotp(keyBytes, counterBuf, digits) {
@@ -96,7 +145,9 @@
     },
     _unbase32(s) {
       const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
-      const bits = (s || '').toLowerCase().replace(/\s+/g, '').split('').map(c => {
+      const cleaned = sanitizeBase32(s);
+      if (!cleaned) throw new Error('Érvénytelen Base32 TOTP titok.');
+      const bits = cleaned.toLowerCase().split('').map(c => {
         const i = alphabet.indexOf(c); if (i < 0) throw new Error(`Érvénytelen Base32 karakter: ${c}`);
         return i.toString(2).padStart(5, '0');
       }).join('');
@@ -241,13 +292,32 @@
           alert(I18N.importInvalid); return;
         }
         const current = Storage.getCreds();
-        for (const [alias, entry] of Object.entries(obj.profiles)) {
-          if (entry && entry.username && entry.password && entry.totp_uri) current.profiles[alias] = entry;
+        const skipped = [];
+        let imported = 0;
+        for (const [rawAlias, entry] of Object.entries(obj.profiles)) {
+          const alias = String(rawAlias).trim();
+          if (!alias || alias === '__proto__' || alias === 'constructor' || alias === 'prototype') { skipped.push(String(rawAlias)); continue; }
+          const norm = normalizeProfileEntry(entry);
+          if (!norm) { skipped.push(alias); continue; }
+          current.profiles[alias] = norm;
+          imported++;
         }
         if (typeof obj.autoLoginEnabled === 'boolean') current.autoLoginEnabled = obj.autoLoginEnabled;
-        if (obj.autoLoginProfile && current.profiles[obj.autoLoginProfile]) current.autoLoginProfile = obj.autoLoginProfile;
+        if (obj.autoLoginProfile && current.profiles[obj.autoLoginProfile]) {
+          current.autoLoginProfile = obj.autoLoginProfile;
+        } else if (!current.autoLoginProfile || !current.profiles[current.autoLoginProfile]) {
+          // Törlés után az alapértelmezett null-ra állt; ha az import fájl nem nevez
+          // meg érvényeset, essen vissza az elsőre, különben az autologin
+          // visszaszámláló soha nem indul el.
+          current.autoLoginProfile = Object.keys(current.profiles)[0] || null;
+        }
         Storage.saveCreds(current);
-        alert(I18N.importSuccess);
+        // FONTOS: a futó belépési folyamat a régi adatokra hivatkozik, és amíg
+        // él, elnyomja a profilválasztót is. Importáláskor el kell dobni.
+        Storage.clearFlow();
+        autoLoginGeneration++;
+        if (imported === 0) { alert(I18N.importNothing); return; }
+        alert(I18N.importReport(imported, skipped));
         onDone && onDone();
       } catch (e) { console.error('[KAU] Import parse error:', e); alert(I18N.importError); }
     };
@@ -313,7 +383,7 @@
     importFile.addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
-      importCredsFromFile(f, () => refreshCredList(root));
+      importCredsFromFile(f, () => refreshManagerState(root));
       importFile.value = '';
     }, { capture: true });
 
@@ -324,10 +394,14 @@
       const password = root.getElementById('kau-password').value;
       const totp = root.getElementById('kau-totp').value.trim();
       if (!alias || !username || !password || !totp) { alert(I18N.allFieldsRequired); return; }
+      const norm = normalizeProfileEntry({ username, password, totp });
+      if (!norm) { alert(I18N.invalidTotp); return; }
       const d = Storage.getCreds();
-      const uri = totp.startsWith('otpauth://') ? totp : `otpauth://totp/${encodeURIComponent(username)}?secret=${encodeURIComponent(totp)}`;
-      d.profiles[alias] = { username, password, totp_uri: uri };
+      d.profiles[alias] = norm;
+      if (!d.autoLoginProfile || !d.profiles[d.autoLoginProfile]) d.autoLoginProfile = alias;
       Storage.saveCreds(d);
+      Storage.clearFlow();
+      autoLoginGeneration++;
       root.getElementById('kau-alias').value = '';
       root.getElementById('kau-username').value = '';
       root.getElementById('kau-password').value = '';
@@ -335,6 +409,16 @@
       refreshCredList(root);
     });
 
+    refreshCredList(root);
+  }
+
+  // Az import a profillistán kívül az autologin kapcsolót is módosíthatja.
+  function refreshManagerState(root) {
+    const d = Storage.getCreds();
+    const pill = root.getElementById('kau-autologin-status');
+    const toggle = root.getElementById('kau-toggle-autologin');
+    if (pill) pill.textContent = d.autoLoginEnabled ? I18N.autoLoginStatusOn : I18N.autoLoginStatusOff;
+    if (toggle) toggle.textContent = d.autoLoginEnabled ? I18N.disableAutoLoginBtn : I18N.enableAutoLoginBtn;
     refreshCredList(root);
   }
 
@@ -376,8 +460,11 @@
         if (!confirm(I18N.deleteConfirm(alias))) return;
         const d = Storage.getCreds();
         delete d.profiles[alias];
-        if (d.autoLoginProfile === alias) d.autoLoginProfile = null;
+        if (d.autoLoginProfile === alias) d.autoLoginProfile = Object.keys(d.profiles)[0] || null;
         Storage.saveCreds(d);
+        // A törölt profilhoz tartozó (vagy bármely) futó folyamat érvénytelen.
+        Storage.clearFlow();
+        autoLoginGeneration++;
         refreshCredList(root);
       });
     });
@@ -389,6 +476,8 @@
         const d = Storage.getCreds();
         d.autoLoginProfile = alias;
         Storage.saveCreds(d);
+        Storage.clearFlow();
+        autoLoginGeneration++;
         refreshCredList(root);
       });
     });
@@ -401,6 +490,9 @@
     if (isManagerOpen()) return; // új védelem: ha manager nyitva, ne jelenjen meg
 
     const myGen = ++autoLoginGeneration;
+
+    // Ha egy korábbi választóablak intervalluma még fut, állítsuk le.
+    if (activeCountdownTimer) { clearInterval(activeCountdownTimer); activeCountdownTimer = null; }
 
     const { root, destroy } = createShadowHost('kau-shadow-host-selection');
     const style = document.createElement('style'); style.textContent = modalStyles();
@@ -426,7 +518,11 @@
     root.append(style, overlay, modal);
 
     let countdownTimer = null;
-    const close = () => { if (countdownTimer) clearInterval(countdownTimer); destroy(); };
+    const close = () => {
+      if (countdownTimer) clearInterval(countdownTimer);
+      if (activeCountdownTimer === countdownTimer) activeCountdownTimer = null;
+      destroy();
+    };
 
     overlay.addEventListener('click', (e) => { if (e.target === overlay) { e.preventDefault(); e.stopPropagation(); close(); } }, { capture: true });
 
@@ -446,7 +542,7 @@
     if (showCountdown) {
       let s = 10;
       const el = modal.querySelector('#kau-countdown');
-      countdownTimer = setInterval(() => {
+      countdownTimer = activeCountdownTimer = setInterval(() => {
         if (autoLoginGeneration !== myGen || !document.getElementById('kau-shadow-host-selection') || isManagerOpen()) {
           clearInterval(countdownTimer);
           return;
@@ -466,9 +562,18 @@
 
   // Flow
   const Steps = Object.freeze({ start: 'start', password: 'password', totp: 'totp', done: 'done' });
+  // A folyamat CSAK az aliast tárolja. Korábban a teljes profilt belemásolta a
+  // GM tárba, így egy törlés+import után is a régi jelszóval/titokkal próbált belépni.
   function newFlow(alias) {
-    const creds = Storage.getCreds(); const profile = creds.profiles[alias]; if (!profile) return null;
-    return { id: `${Date.now()}_${Math.random().toString(36).slice(2,8)}`, alias, profile, step: Steps.start, lastHost: location.hostname, startedAt: Date.now() };
+    const creds = Storage.getCreds(); if (!creds.profiles[alias]) return null;
+    return { id: `${Date.now()}_${Math.random().toString(36).slice(2,8)}`, alias, step: Steps.start, lastHost: location.hostname, startedAt: Date.now() };
+  }
+  // A profilt minden lépésnél frissen olvassuk ki a tárból.
+  function flowProfile(flow) {
+    if (!flow || !flow.alias) { completeFlow(); return null; }
+    const p = Storage.getCreds().profiles[flow.alias];
+    if (!p) { console.warn('[KAU] A folyamathoz tartozó profil már nem létezik:', flow.alias); completeFlow(); return null; }
+    return p;
   }
   function startFlow(alias) { const f = newFlow(alias); if (f) Storage.setFlow(f); }
   function getValidFlow() {
@@ -521,6 +626,7 @@
   // Automation
   async function continueLogin() {
     const flow = getValidFlow(); if (!flow) return;
+    const profile = flowProfile(flow); if (!profile) return;
 
     try {
       if (onKauChooserPage() && flow.step === Steps.start) {
@@ -539,8 +645,8 @@
       if (onIdpPasswordPage() && (flow.step === Steps.password || flow.step === Steps.start)) {
         const u = await waitFor('#name', 10000);
         const p = await waitFor('#password', 10000);
-        u.value = flow.profile.username;
-        p.value = flow.profile.password;
+        u.value = profile.username;
+        p.value = profile.password;
         u.dispatchEvent(new Event('input', { bubbles: true }));
         p.dispatchEvent(new Event('input', { bubbles: true }));
         const submit = document.querySelector('input[type="submit"][value="Bejelentkezés"], button[type="submit"]') || p.form && p.form.querySelector('[type="submit"]');
@@ -551,7 +657,7 @@
 
       if (onIdpTotpPage() && (flow.step === Steps.totp || flow.step === Steps.password)) {
         const totpField = await waitFor('#identifier', 10000);
-        const secret = (new URL(flow.profile.totp_uri)).searchParams.get('secret');
+        const secret = extractTotpSecret(profile.totp_uri);
         if (!secret) throw new Error('Nem sikerült kiolvasni a TOTP secretet a tárolt URI-ból.');
         totpField.value = await TOTP.totp(secret);
         totpField.dispatchEvent(new Event('input', { bubbles: true }));
