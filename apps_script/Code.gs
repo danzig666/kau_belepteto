@@ -1,18 +1,23 @@
 /**
- * KAÜ beléptető – Google Drive szinkron szolgáltatás (Google Apps Script)
+ * KAÜ beléptető – szinkron szolgáltatás (Google Apps Script)
  *
  * A Tampermonkey script ezen a webalkalmazáson keresztül olvassa és írja a
- * Google Drive-odon lévő szinkronfájlt. A fájlba csak a böngészőben már
- * titkosított adat kerül; ez a script nem ismeri a titkosítási jelszót.
+ * szinkronizált adatot. Az adat a projekt saját tárában (Script Properties)
+ * van, és már a böngészőben titkosítva érkezik; ez a script nem ismeri a
+ * titkosítási jelszót.
  *
- * Beállítás: lásd a README "Google Drive szinkron" fejezetét.
+ * A script semmilyen Google-jogosultságot (Drive, Gmail stb.) nem használ,
+ * ezért futtatáskor nem kér engedélyt, és a Google sem tiltja le.
+ *
+ * Beállítás: lásd a README "Google szinkron" fejezetét.
  *   1. Futtasd egyszer a `setup` függvényt, és másold ki a naplóból a kulcsot.
  *   2. Telepítsd webalkalmazásként (Végrehajtás: Én, Hozzáférés: Bárki).
  */
 
-const FILE_NAME = 'kau_belepteto_sync.json';
+// Egy Script Property értéke legfeljebb 9 KB lehet, ezért darabolva tároljuk.
+const CHUNK_SIZE = 8000;
 
-/** Egyszer kell futtatni a szerkesztőből: kulcsot generál és létrehozza a fájlt. */
+/** Egyszer kell futtatni a szerkesztőből: kulcsot generál és kiírja a naplóba. */
 function setup() {
   const props = PropertiesService.getScriptProperties();
   let token = props.getProperty('TOKEN');
@@ -20,8 +25,6 @@ function setup() {
     token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
     props.setProperty('TOKEN', token);
   }
-  const file = getFile_();
-  Logger.log('Szinkronfájl a Drive-on: ' + file.getName() + ' (' + file.getUrl() + ')');
   Logger.log('Hozzáférési kulcs: ' + token);
 }
 
@@ -29,6 +32,13 @@ function setup() {
 function resetToken() {
   PropertiesService.getScriptProperties().deleteProperty('TOKEN');
   setup();
+}
+
+/** Törli a tárolt (titkosított) adatot. A következő szinkronnál a gép újra feltölti a sajátját. */
+function resetData() {
+  const props = PropertiesService.getScriptProperties();
+  writeData_(props, null, readData_(props).rev + 1);
+  Logger.log('A tárolt szinkronadat törölve.');
 }
 
 /** Böngészőben megnyitva ellenőrizhető, hogy a telepítés működik-e. */
@@ -40,25 +50,24 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
     const req = JSON.parse(e.postData.contents);
-    const token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+    const props = PropertiesService.getScriptProperties();
+    const token = props.getProperty('TOKEN');
     if (!token) return json_({ ok: false, error: 'A setup függvény még nem futott le.' });
     if (!req || req.token !== token) return json_({ ok: false, error: 'unauthorized' });
 
     lock.waitLock(10000);
-    const file = getFile_();
-    const stored = parse_(file.getBlob().getDataAsString());
-    const rev = stored.rev || 0;
+    const stored = readData_(props);
 
     if (req.action === 'get') {
-      return json_({ ok: true, rev: rev, data: stored.data || null });
+      return json_({ ok: true, rev: stored.rev, data: stored.data });
     }
 
     if (req.action === 'put') {
       // Csak akkor írunk, ha azóta más nem írta felül (optimista zárolás).
-      if (req.rev !== rev) return json_({ ok: false, error: 'conflict', rev: rev });
+      if (req.rev !== stored.rev) return json_({ ok: false, error: 'conflict', rev: stored.rev });
       if (!req.data || typeof req.data !== 'object') return json_({ ok: false, error: 'Hiányzó adat.' });
-      file.setContent(JSON.stringify({ rev: rev + 1, updated: new Date().toISOString(), data: req.data }));
-      return json_({ ok: true, rev: rev + 1 });
+      writeData_(props, req.data, stored.rev + 1);
+      return json_({ ok: true, rev: stored.rev + 1 });
     }
 
     return json_({ ok: false, error: 'Ismeretlen művelet.' });
@@ -69,22 +78,26 @@ function doPost(e) {
   }
 }
 
-function getFile_() {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('FILE_ID');
-  if (id) {
-    try {
-      const f = DriveApp.getFileById(id);
-      if (!f.isTrashed()) return f;
-    } catch (err) { /* törölve, újat hozunk létre */ }
-  }
-  const file = DriveApp.createFile(FILE_NAME, '{}', MimeType.PLAIN_TEXT);
-  props.setProperty('FILE_ID', file.getId());
-  return file;
+function readData_(props) {
+  const all = props.getProperties();
+  const rev = Number(all.DATA_REV) || 0;
+  const n = Number(all.DATA_N) || 0;
+  let text = '';
+  for (let i = 0; i < n; i++) text += all['DATA_' + i] || '';
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch (err) { data = null; } }
+  return { rev: rev, data: data };
 }
 
-function parse_(text) {
-  try { return JSON.parse(text) || {}; } catch (err) { return {}; }
+function writeData_(props, data, rev) {
+  const oldCount = Number(props.getProperty('DATA_N')) || 0;
+  const text = data ? JSON.stringify(data) : '';
+  const values = { DATA_REV: String(rev) };
+  let n = 0;
+  for (let i = 0; i < text.length; i += CHUNK_SIZE) values['DATA_' + (n++)] = text.slice(i, i + CHUNK_SIZE);
+  values.DATA_N = String(n);
+  props.setProperties(values);
+  for (let i = n; i < oldCount; i++) props.deleteProperty('DATA_' + i);
 }
 
 function json_(obj) {

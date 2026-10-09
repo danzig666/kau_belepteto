@@ -2,7 +2,7 @@
 // @name         KAÜ (Ügyfélkapu+) automata beléptető
 // @namespace    http://tampermonkey.net/
 // @version      2.7.0
-// @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, Google Drive szinkron, autologin
+// @description  Többprofilos automatikus belépés KAÜ oldalakkal, export/import, Google szinkron, autologin
 // @author       danzig666
 // @homepageURL  https://github.com/danzig666/kau_belepteto
 // @downloadURL  https://raw.githubusercontent.com/danzig666/kau_belepteto/main/kau_login.user.js
@@ -85,7 +85,7 @@
     importError: "Nem sikerült beolvasni az import fájlt.",
     securityNote: "Megjegyzés: az exportált fájl jelszavakat is tartalmaz, kezeld bizalmasan.",
 
-    syncTitle: "Google Drive szinkron",
+    syncTitle: "Google szinkron",
     syncNowBtn: "Szinkron most",
     syncSettingsBtn: "Szinkron beállítások",
     syncUrlLabel: "Apps Script webalkalmazás URL (…/exec)",
@@ -94,8 +94,8 @@
     syncAutoLabel: "Automatikus szinkron (a kezelő megnyitásakor, módosítás után és a KAÜ oldal betöltésekor)",
     syncSaveBtn: "Mentés és szinkron",
     syncDisableBtn: "Szinkron kikapcsolása ezen a gépen",
-    syncDisableConfirm: "Kikapcsolja a szinkront ezen a gépen? A helyi profilok és a Drive-on lévő adatok megmaradnak.",
-    syncNote: "A profilok titkosítva kerülnek a Google Drive-ra. A titkosítási jelszó csak ezen a gépen tárolódik, minden gépen ugyanazt kell megadni.",
+    syncDisableConfirm: "Kikapcsolja a szinkront ezen a gépen? A helyi profilok és a Google-fiókban tárolt adatok megmaradnak.",
+    syncNote: "A profilok titkosítva kerülnek a Google-fiókjába (a saját Apps Script projektjébe). A titkosítási jelszó csak ezen a gépen tárolódik, minden gépen ugyanazt kell megadni.",
     syncStatusOff: "Szinkron: nincs beállítva",
     syncStatusNever: "Szinkron: még nem futott",
     syncStatusBusy: "Szinkron folyamatban…",
@@ -110,8 +110,8 @@
     syncErrNotJson: "A szerver nem a várt választ adta. Ellenőrizze az URL-t, és hogy a telepítésnél a hozzáférés „Bárki” (Anyone) legyen.",
     syncErrToken: "Hibás hozzáférési kulcs.",
     syncErrServer: (e) => `Szerverhiba: ${e}`,
-    syncErrDecrypt: "Nem sikerült visszafejteni a Drive-on lévő adatokat. Hibás a titkosítási jelszó? A Drive-on lévő adatok nem lettek felülírva.",
-    syncErrFormat: "Ismeretlen adatformátum a Drive-on (lehet, hogy újabb scriptverzió írta).",
+    syncErrDecrypt: "Nem sikerült visszafejteni a tárolt adatokat. Hibás a titkosítási jelszó? A tárolt adatok nem lettek felülírva.",
+    syncErrFormat: "Ismeretlen tárolt adatformátum (lehet, hogy újabb scriptverzió írta).",
     syncErrConflict: "Egy másik eszköz épp most módosította az adatokat. Próbálja újra."
   };
 
@@ -242,11 +242,11 @@
     _pack64(val) { const b = new ArrayBuffer(8), dv = new DataView(b), hi = Math.floor(val/2**32), lo = Math.floor(val%2**32); dv.setUint32(0, hi); dv.setUint32(4, lo); return b; }
   };
 
-  // --- Google Drive szinkron -------------------------------------------
+  // --- Google szinkron ------------------------------------------------
   // Az adatok a felhasználó saját Google Apps Script webalkalmazásán keresztül
-  // kerülnek a Drive-ra (lásd README és apps_script/Code.gs). Feltöltés előtt
+  // kerülnek a Google-fiókjába (lásd README és apps_script/Code.gs). Feltöltés előtt
   // AES-GCM-mel titkosítunk, a kulcs a titkosítási jelszóból PBKDF2-vel
-  // származik, így a Drive-on csak olvashatatlan adat van.
+  // származik, így a szerveren csak olvashatatlan adat van.
   const SYNC_MIN_PASS_LEN = 6;
   const SYNC_PBKDF2_ITER = 600000;
   const SYNC_URL_RE = /^https:\/\/script\.google\.com\/.+\/exec\/?$/;
@@ -356,9 +356,9 @@
   }
 
   // Profilonként a későbbi módosítás nyer (mentés vagy törlés). Egyenlő
-  // időbélyegnél (pl. régi, időbélyeg nélküli profilok) a Drive-on lévő
+  // időbélyegnél (pl. régi, időbélyeg nélküli profilok) a szerveren lévő
   // változat nyer, így minden gép ugyanarra az állapotra áll be.
-  // remote === null: a Drive-on még nincs adat, ilyenkor a helyi az irányadó.
+  // remote === null: a szerveren még nincs adat, ilyenkor a helyi az irányadó.
   function mergeSyncPayloads(local, remote) {
     if (!remote) return mergeSyncPayloads(toSyncPayload(null), local);
     const out = { profiles: {}, deleted: {}, autoLoginProfile: null, settingsUpdatedAt: 0 };

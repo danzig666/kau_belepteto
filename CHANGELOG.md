@@ -2,15 +2,17 @@
 
 ## v2.7.0
 
-**Új: Google Drive szinkron (opcionális).**
+**Új: Google szinkron (opcionális).**
 
-- A profilok több gép között szinkronizálhatók a saját Google Drive-on keresztül,
-  egy saját Google Apps Script webalkalmazás segítségével
-  ([`apps_script/Code.gs`](apps_script/Code.gs)). Beállítás: README, „Google
-  Drive szinkron” fejezet.
-- A Drive-ra csak titkosított adat kerül (AES-256-GCM, a kulcs a legalább
+- A profilok több gép között szinkronizálhatók egy saját Google Apps Script
+  webalkalmazás segítségével ([`apps_script/Code.gs`](apps_script/Code.gs)).
+  Beállítás: README, „Google szinkron” fejezet.
+- Az Apps Script semmilyen Google-jogosultságot nem kér (az adat a projekt
+  Script Properties tárában van), így nem kell engedélyezni, és a Google sem
+  tiltja le.
+- Csak titkosított adat kerül fel (AES-256-GCM, a kulcs a legalább
   6 karakteres titkosítási jelszóból készül PBKDF2-vel). Hibás jelszó esetén a
-  script nem írja felül a Drive-on lévő adatot.
+  script nem írja felül a tárolt adatot.
 - Összefésülés profilonként: a későbbi mentés vagy törlés nyer, a törlés a
   többi gépre is átmegy. Egyidejű írásnál újrapróbál.
 - Automatikus szinkron a kezelő megnyitásakor, módosítás után és a KAÜ oldal
