@@ -1,5 +1,24 @@
 # Változásnapló
 
+## v2.7.0
+
+**Új: Google Drive szinkron (opcionális).**
+
+- A profilok több gép között szinkronizálhatók a saját Google Drive-on keresztül,
+  egy saját Google Apps Script webalkalmazás segítségével
+  ([`apps_script/Code.gs`](apps_script/Code.gs)). Beállítás: README, „Google
+  Drive szinkron” fejezet.
+- A Drive-ra csak titkosított adat kerül (AES-256-GCM, a kulcs a legalább
+  6 karakteres titkosítási jelszóból készül PBKDF2-vel). Hibás jelszó esetén a
+  script nem írja felül a Drive-on lévő adatot.
+- Összefésülés profilonként: a későbbi mentés vagy törlés nyer, a törlés a
+  többi gépre is átmegy. Egyidejű írásnál újrapróbál.
+- Automatikus szinkron a kezelő megnyitásakor, módosítás után és a KAÜ oldal
+  betöltésekor, illetve kézzel a **Szinkron most** gombbal.
+- Az Autologin BE/KI kapcsoló gépenként külön marad.
+- Új jogosultság: `GM_xmlhttpRequest` (`script.google.com`,
+  `script.googleusercontent.com`).
+
 ## v2.6.6
 
 **Javítva: több példány futott egyszerre, ezért a régi jelszóval próbált belépni.**
